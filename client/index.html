@@ -95,14 +95,20 @@ pc.ontrack = (ev) => {
 
 
     // مانیتور کیفیت
-    setInterval(async ()=>{
-      const stats = await pc.getStats();
-      stats.forEach(report=>{
-        if(report.type==="inbound-rtp" && report.kind==="video"){
-          log(`FPS=${report.framesPerSecond} Jitter=${report.jitter} kbps=${(report.bytesReceived*8/1000).toFixed(0)}`);
-        }
-      });
-    }, 2000);
+ // مانیتور کیفیت + پینگ/لتنسی
+setInterval(async ()=>{
+  const stats = await pc.getStats();
+  stats.forEach(report=>{
+    if (report.type === "inbound-rtp" && report.kind === "video") {
+      log(`FPS=${report.framesPerSecond} kbps=${(report.bytesReceived*8/1000).toFixed(0)}`);
+    }
+    if (report.type === "candidate-pair" && report.state === "succeeded" && report.currentRoundTripTime) {
+      const rttMs = (report.currentRoundTripTime * 1000).toFixed(1);
+      log(`Ping/Latency ≈ ${rttMs} ms`);
+    }
+  });
+}, 2000);
+
   }
 
   function enableInputEvents(canvas){
