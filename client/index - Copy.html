@@ -1,0 +1,59 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>WebRTC Desktop + AI Upscale (DEBUG)</title>
+  <style>video{max-width:90vw;max-height:80vh;background:#000}</style>
+</head>
+<body>
+  <h1>Desktop Streaming with AI Upscale (DEBUG)</h1>
+  <video id="remote" autoplay playsinline controls muted></video>
+  <pre id="log" style="white-space:pre-wrap;background:#111;color:#0f0;padding:8px;"></pre>
+  <script>
+  const logEl = document.getElementById('log');
+  const log = (...args)=>{ const s=args.join(' '); console.log(s); logEl.textContent += s + "\n"; };
+
+  let pc;
+  async function start(){
+    pc = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+    });
+    pc.onicegatheringstatechange = ()=> log("gathering:", pc.iceGatheringState);
+    pc.oniceconnectionstatechange = ()=> log("ice:", pc.iceConnectionState);
+    pc.onconnectionstatechange = ()=> log("pc:", pc.connectionState);
+
+    pc.addTransceiver("video", {direction:"recvonly"});
+
+    pc.ontrack = (ev)=>{
+      log("ontrack:", ev.track.kind, "streams:", ev.streams.length);
+      document.getElementById('remote').srcObject = ev.streams[0];
+      document.getElementById('remote').play().catch(e=>log("video.play err:", e));
+    };
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    log("local offer set. SDP len:", offer.sdp.length);
+
+    const res = await fetch('/offer', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({sdp: offer.sdp, type: offer.type})
+    });
+    const answer = await res.json();
+    await pc.setRemoteDescription(answer);
+    log("remote answer set. SDP len:", answer.sdp.length);
+	pc.getStats().then(stats => {
+    stats.forEach(report => {
+        if (report.type === "inbound-rtp" && report.kind === "video") {
+            console.log("Frames per second:", report);
+            console.log("Frames per second:", report.framesPerSecond);
+            console.log("Jitter:", report.jitter);
+        }
+    });
+});
+  }
+  
+  start();
+  </script>
+</body>
+</html>

@@ -1,0 +1,160 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>WebRTC Cloud Gaming Client</title>
+  <style>
+    body { background:#000; color:#0f0; font-family:monospace; text-align:center }
+    canvas { max-width:90vw; max-height:80vh; display:block; margin:10px auto; background:#111; cursor:none }
+    pre { white-space:pre-wrap; background:#111; color:#0f0; padding:8px; text-align:left; max-width:90vw; margin:10px auto }
+  </style>
+</head>
+<body>
+  <h1>🎮 Cloud Gaming Client</h1>
+  <canvas id="gameCanvas"></canvas>
+  <audio id="remoteAudio" autoplay></audio>
+  <pre id="log"></pre>
+
+  <script>
+  const logEl = document.getElementById('log');
+  const log = (...args)=>{ const s=args.join(' '); console.log(s);  };
+
+  let pc, channel, video;
+
+  async function start(){
+    pc = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+    });
+
+    pc.onicegatheringstatechange = ()=> log("gathering:", pc.iceGatheringState);
+    pc.oniceconnectionstatechange = ()=> log("ice:", pc.iceConnectionState);
+    pc.onconnectionstatechange = ()=> log("pc:", pc.connectionState);
+
+   pc.addTransceiver("video", { direction:"recvonly" });
+pc.addTransceiver("audio", { direction:"recvonly" });
+
+    // منبع ویدیو (پنهان)
+    video = document.createElement("video");
+    video.autoplay = true;
+    video.playsInline = true;
+    <!-- video.muted = true; -->
+    video.style.display = "block";
+    document.body.appendChild(video);
+
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+		canvas.tabIndex = 0;       // مهم: بدون این، preventDefault برای Tab همیشه کار نمی‌کند
+    canvas.focus();
+pc.ontrack = (ev) => {
+    log("ontrack:", ev.track.kind, "streams:", ev.streams.length);
+    if (ev.track.kind === "video") {
+        video.srcObject = ev.streams[0];
+        video.play().catch(e => log("video.play err:", e));
+        log("Video track received, width:", video.videoWidth, "height:", video.videoHeight);
+
+        function render() {
+            if (video.videoWidth > 0) {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            } else {
+                log("No video dimensions yet");
+            }
+            requestAnimationFrame(render);
+        }
+        render();
+    }
+    if (ev.track.kind === "audio") {
+        const audioEl = document.getElementById("remoteAudio");
+        audioEl.srcObject = ev.streams[0];
+    }
+};
+    // DataChannel برای ورودی
+    channel = pc.createDataChannel("input");
+	console.log(channel,555);
+    channel.onopen = ()=> {
+      log("✅ DataChannel opened for input");
+      enableInputEvents(canvas);
+	   canvas.focus();   
+    };
+    channel.onclose = ()=> log("❌ DataChannel closed");
+    // Offer → سرور
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    log("local offer set. SDP len:", offer.sdp.length);
+
+    const res = await fetch('/offer', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({sdp: offer.sdp, type: offer.type})
+    });
+    const answer = await res.json();
+    await pc.setRemoteDescription(answer);
+    log("remote answer set. SDP len:", answer.sdp.length);
+
+
+
+    // مانیتور کیفیت
+    setInterval(async ()=>{
+      const stats = await pc.getStats();
+      stats.forEach(report=>{
+        if(report.type==="inbound-rtp" && report.kind==="video"){
+          log(`FPS=${report.framesPerSecond} Jitter=${report.jitter} kbps=${(report.bytesReceived*8/1000).toFixed(0)}`);
+        }
+      });
+    }, 2000);
+  }
+
+  function enableInputEvents(canvas){
+    // Pointer Lock روی canvas
+
+    canvas.requestPointerLock = canvas.requestPointerLock || canvas.mozRequestPointerLock;
+    canvas.addEventListener("click", ()=>{
+      canvas.requestPointerLock();
+	   canvas.focus();
+    });
+    const blockDefaultKeys = new Set([
+      "Tab","AltLeft","AltRight","MetaLeft","MetaRight",
+      "F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12"
+    ]);
+    // کیبورد
+    document.addEventListener("keydown", e=>{
+	 if (blockDefaultKeys.has(e.code)) e.preventDefault();
+      if(channel.readyState==="open")
+        channel.send(JSON.stringify({type:"keydown", key:e.code}));
+    });
+    document.addEventListener("keyup", e=>{
+	 if (blockDefaultKeys.has(e.code)) e.preventDefault();
+      if(channel.readyState==="open")
+        channel.send(JSON.stringify({type:"keyup", key:e.code}));
+    });
+
+    // موس (relative فقط وقتی lock فعاله)
+    document.addEventListener("mousemove", e=>{
+      if (document.pointerLockElement === canvas && channel.readyState==="open") {
+	  console.log(444);
+        channel.send(JSON.stringify({type:"mousemove", x:e.movementX, y:e.movementY}));
+      }
+    });
+    document.addEventListener("mousedown", e=>{
+      if(channel.readyState==="open")
+        channel.send(JSON.stringify({type:"mousedown", button:e.button}));
+    });
+    document.addEventListener("mouseup", e=>{
+      if(channel.readyState==="open")
+        channel.send(JSON.stringify({type:"mouseup", button:e.button}));
+    });
+    document.addEventListener("wheel", e=>{
+      if(channel.readyState==="open")
+        channel.send(JSON.stringify({type:"wheel", delta:e.deltaY}));
+    });
+	 window.addEventListener("blur", ()=> canvas.focus());
+    document.addEventListener("visibilitychange", ()=>{
+      if (document.visibilityState === "visible") canvas.focus();
+    });
+  }
+
+  start();
+  </script>
+</body>
+</html>
