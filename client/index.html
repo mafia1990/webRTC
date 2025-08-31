@@ -10,7 +10,8 @@
   </style>
 </head>
 <body>
-  <h1>🎮 Cloud Gaming Client</h1>
+  <h1>🎮 Orbit Game Client</h1>
+  <div id="statsBar" style="color:#0ff; margin:8px; font-weight:bold"></div>
   <canvas id="gameCanvas"></canvas>
   <audio id="remoteAudio" autoplay></audio>
   <pre id="log"></pre>
@@ -98,28 +99,48 @@ let lastBytesReceived = 0;
 let lastBytesSent = 0;
 let lastTime = Date.now();
 
+let lastBytesReceived = 0;
+let lastBytesSent = 0;
+let lastTime = Date.now();
+
+let fpsNow = 0, kbpsDownNow = 0, kbpsUpNow = 0, rttNow = 0;
+
 setInterval(async ()=>{
   const now = Date.now();
   const stats = await pc.getStats();
   stats.forEach(report=>{
+    // 📥 دانلود (inbound RTP: video)
     if (report.type === "inbound-rtp" && report.kind === "video") {
-      const deltaTime = (now - lastTime) / 1000; // ثانیه
+      const deltaTime = (now - lastTime) / 1000;
       const deltaBytes = report.bytesReceived - lastBytesReceived;
-      const kbps = (deltaBytes * 8 / 1000 / deltaTime).toFixed(1);
+      kbpsDownNow = (deltaBytes * 8 / 1000 / deltaTime).toFixed(1);
+      fpsNow = report.framesPerSecond || 0;
 
-      log(`⬇️ Video bitrate = ${kbps} kbps`);
+      log(`FPS=${fpsNow} ⬇️ Download=${kbpsDownNow} kbps`);
       lastBytesReceived = report.bytesReceived;
     }
-    if (report.type === "outbound-rtp" && report.kind === "video") {
+
+    // 📤 آپلود (outbound RTP)
+    if (report.type === "outbound-rtp") {
       const deltaTime = (now - lastTime) / 1000;
       const deltaBytes = report.bytesSent - lastBytesSent;
-      const kbps = (deltaBytes * 8 / 1000 / deltaTime).toFixed(1);
+      kbpsUpNow = (deltaBytes * 8 / 1000 / deltaTime).toFixed(1);
 
-      log(`⬆️ Sent bitrate = ${kbps} kbps`);
+      log(`⬆️ Upload=${kbpsUpNow} kbps`);
       lastBytesSent = report.bytesSent;
+    }
+
+    // ⏱ پینگ/لتنسی
+    if (report.type === "candidate-pair" && report.state === "succeeded" && report.currentRoundTripTime) {
+      rttNow = (report.currentRoundTripTime * 1000).toFixed(1);
+      log(`Ping/Latency ≈ ${rttNow} ms`);
     }
   });
   lastTime = now;
+
+  // ✨ آپدیت نوار وضعیت
+  const statsBar = document.getElementById("statsBar");
+  statsBar.innerText = `FPS: ${fpsNow} | ⬇️ ${kbpsDownNow} kbps | ⬆️ ${kbpsUpNow} kbps | Ping: ${rttNow} ms`;
 }, 2000);
 
 

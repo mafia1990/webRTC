@@ -318,7 +318,7 @@ async def offer(request):
     # SDP munging: محدود کردن bitrate به 1500 kbps
     sdp = answer.sdp.replace(
         "a=mid:0",
-        "a=mid:0\r\nb=AS:2000\r\nx-google-start-bitrate:500\r\nx-google-max-bitrate:2500"
+        "a=mid:0\r\nb=AS:2000\r\nx-google-start-bitrate:100\r\nx-google-max-bitrate:3500"
     )
     answer = RTCSessionDescription(sdp=sdp, type=answer.type)
 
