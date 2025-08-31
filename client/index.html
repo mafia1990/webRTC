@@ -94,20 +94,34 @@ pc.ontrack = (ev) => {
 
 
 
-    // مانیتور کیفیت
- // مانیتور کیفیت + پینگ/لتنسی
+let lastBytesReceived = 0;
+let lastBytesSent = 0;
+let lastTime = Date.now();
+
 setInterval(async ()=>{
+  const now = Date.now();
   const stats = await pc.getStats();
   stats.forEach(report=>{
     if (report.type === "inbound-rtp" && report.kind === "video") {
-      log(`FPS=${report.framesPerSecond} kbps=${(report.bytesReceived*8/1000).toFixed(0)}`);
+      const deltaTime = (now - lastTime) / 1000; // ثانیه
+      const deltaBytes = report.bytesReceived - lastBytesReceived;
+      const kbps = (deltaBytes * 8 / 1000 / deltaTime).toFixed(1);
+
+      log(`⬇️ Video bitrate = ${kbps} kbps`);
+      lastBytesReceived = report.bytesReceived;
     }
-    if (report.type === "candidate-pair" && report.state === "succeeded" && report.currentRoundTripTime) {
-      const rttMs = (report.currentRoundTripTime * 1000).toFixed(1);
-      log(`Ping/Latency ≈ ${rttMs} ms`);
+    if (report.type === "outbound-rtp" && report.kind === "video") {
+      const deltaTime = (now - lastTime) / 1000;
+      const deltaBytes = report.bytesSent - lastBytesSent;
+      const kbps = (deltaBytes * 8 / 1000 / deltaTime).toFixed(1);
+
+      log(`⬆️ Sent bitrate = ${kbps} kbps`);
+      lastBytesSent = report.bytesSent;
     }
   });
+  lastTime = now;
 }, 2000);
+
 
   }
 
