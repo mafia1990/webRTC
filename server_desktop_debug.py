@@ -233,50 +233,41 @@ class DesktopCaptureTrack(MediaStreamTrack):
 
         # DXCamera: returns BGR, HxWx3 uint8
         self.cam = DXCamera(0, 0, screen_w, screen_h, fps)
-        self._next_ts = time.perf_counter()
-        self._last_frame_time = None
+
     async def recv(self):
         # Grab latest frame (BGR, HxWx3)
         frame, ts = await asyncio.to_thread(self.cam.get_bgr_frame)
 
         if frame is None:
-            # print("⚠️ Frame is None")
+            print("⚠️ Frame is None")
             frame = np.zeros((self.out_h, self.out_w, 3), dtype=np.uint8)
         else:
-            # print(f"✅ Got frame {frame.shape}, ts={ts}")
+            print(f"✅ Got frame {frame.shape}, ts={ts}")
             h, w = frame.shape[:2]
-            if (w, h) != (self.out_w, self.out_h):
-                if _CUPY_OK:
-                    # ---- GPU resize with CuPy (bilinear) ----
-                    sy = self.out_h / h
-                    sx = self.out_w / w
-                    gpu_img = cp.asarray(frame)                      # HxWx3 (BGR) on GPU
-                    gpu_resized = cupy_zoom(gpu_img, (sy, sx, 1.0), order=1)
+            # if (w, h) != (self.out_w, self.out_h):
+                # if _CUPY_OK:
+                    # # ---- GPU resize with CuPy (bilinear) ----
+                    # sy = self.out_h / h
+                    # sx = self.out_w / w
+                    # gpu_img = cp.asarray(frame)                      # HxWx3 (BGR) on GPU
+                    # gpu_resized = cupy_zoom(gpu_img, (sy, sx, 1.0), order=1)
                     # print("before cupy:", frame.shape, frame.dtype, frame.min(), frame.max())
-                    frame = cp.asnumpy(gpu_resized).astype(np.uint8)
+                    # frame = cp.asnumpy(gpu_resized).astype(np.uint8)
                     # print("after cupy:", frame.shape, frame.dtype, frame.min(), frame.max())            # back to CPU
-                else:
-                    # ---- CPU NumPy bilinear fallback ----
-                    frame = _resize_bilinear_numpy(frame, self.out_w, self.out_h)
+                # else:
+                    # # ---- CPU NumPy bilinear fallback ----
+                    # frame = _resize_bilinear_numpy(frame, self.out_w, self.out_h)
 
         # BGR -> RGB without cv2
         frame = frame[..., ::-1]
-        # print("Frame:", frame.shape, frame.dtype, frame.min(), frame.max())
+        print("Frame:", frame.shape, frame.dtype, frame.min(), frame.max())
         # Wrap to AV frame for WebRTC
         av_frame = av.VideoFrame.from_ndarray(frame, format="rgb24")
         av_frame.pts = self.counter
         av_frame.time_base = fractions.Fraction(1, self.fps)
         self.counter += 1
 
-        # مدیریت زمان دقیق
-        now = time.perf_counter()
-        target_interval = 1.0 / self.fps
-        if self._last_frame_time is not None:
-            actual_interval = now - self._last_frame_time
-            if actual_interval < target_interval * 0.8:
-                await asyncio.sleep(target_interval - actual_interval)
-        self._last_frame_time = time.perf_counter()
-
+        # await asyncio.sleep(1 / self.fps)
         return av_frame
 
 
@@ -355,7 +346,7 @@ async def offer(request):
     # ✅ تنظیم کُدِک بعد از setRemoteDescription و قبل از createAnswer
     for transceiver in pc.getTransceivers():
         if transceiver.sender == video_sender:
-    
+
             log.info("Found video transceiver, setting codec preferences...")
             caps = RTCRtpSender.getCapabilities("video")
             log.info("Available codecs: %s", caps.codecs)
@@ -374,26 +365,12 @@ async def offer(request):
 
 
     answer = await pc.createAnswer()
-    sdp = answer.sdp
 
-    # ✅ اضافه کردن فریم‌ریت به خط ویدیو
-    # پیدا کردن خط بعد از m=video و اضافه کردن a=framerate
-    lines = sdp.splitlines()
-    new_lines = []
-
-    for line in lines:
-        new_lines.append(line)
-        if line.startswith("a=mid:1") and "m=video" in "\n".join(new_lines[-3:]):
-            new_lines.append("a=framerate:30")
-
-    sdp = "\r\n".join(new_lines)
-
-    # محدودیت بیت‌ریت
-    sdp = sdp.replace(
+    # SDP munging: محدود کردن bitrate به 1500 kbps
+    sdp = answer.sdp.replace(
         "a=mid:0",
-        "a=mid:0\r\nb=AS:2000\r\nx-google-start-bitrate:1000\r\nx-google-max-bitrate:3500"
+        "a=mid:0\r\nb=AS:2000\r\nx-google-start-bitrate:100\r\nx-google-max-bitrate:3500"
     )
-
     answer = RTCSessionDescription(sdp=sdp, type=answer.type)
 
     sdp_summary(answer.sdp, "LOCAL (answer)")
