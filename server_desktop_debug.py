@@ -261,8 +261,8 @@ class DesktopCaptureTrack(MediaStreamTrack):
         # BGR -> RGB without cv2
         frame = frame[..., ::-1]
         cv2.imshow("DesktopCapture DEBUG", frame)
-            cv2.waitKey(1)
-            print("Frame:", frame.shape, frame.dtype, frame.min(), frame.max())
+        cv2.waitKey(1)
+        print("Frame:", frame.shape, frame.dtype, frame.min(), frame.max())
         # Wrap to AV frame for WebRTC
         av_frame = av.VideoFrame.from_ndarray(frame, format="rgb24")
         av_frame.pts = self.counter
