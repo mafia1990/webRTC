@@ -266,10 +266,7 @@ class DesktopCaptureTrack(MediaStreamTrack):
         av_frame.pts = self.counter
         av_frame.time_base = fractions.Fraction(1, self.fps)
         self.counter += 1
-        if self.counter == 10:  # مثلا فقط فریم دهم رو نشون بده
-            debug_img = av_frame.to_ndarray(format="bgr24")
-            cv2.imshow("AVFrame DEBUG", debug_img)
-            cv2.waitKey(1)
+
         await asyncio.sleep(1 / self.fps)
         return av_frame
 
@@ -360,7 +357,7 @@ async def offer(request):
                 and codec.parameters.get("profile-level-id") in ["42e01f", "42001f"]
             ]
             if h264_codecs:
-                # transceiver.setCodecPreferences(h264_codecs)
+                transceiver.setCodecPreferences(h264_codecs)
                 log.info("✅ H.264 selected as preferred codec")
             else:
                 log.warning("❌ H.264 NOT available in capabilities. Using default (likely VP8)")
@@ -370,11 +367,11 @@ async def offer(request):
     answer = await pc.createAnswer()
 
     # SDP munging: محدود کردن bitrate به 1500 kbps
-    sdp = answer.sdp.replace(
-        "a=mid:0",
-        "a=mid:0\r\nb=AS:2000\r\nx-google-start-bitrate:100\r\nx-google-max-bitrate:3500"
-    )
-    answer = RTCSessionDescription(sdp=sdp, type=answer.type)
+    # sdp = answer.sdp.replace(
+        # "a=mid:0",
+        # "a=mid:0\r\nb=AS:2000\r\nx-google-start-bitrate:100\r\nx-google-max-bitrate:3500"
+    # )
+    # answer = RTCSessionDescription(sdp=sdp, type=answer.type)
 
     sdp_summary(answer.sdp, "LOCAL (answer)")
     await pc.setLocalDescription(answer)
