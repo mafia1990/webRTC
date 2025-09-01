@@ -221,53 +221,43 @@ class MicrophoneAudioTrack(MediaStreamTrack):
 class DesktopCaptureTrack(MediaStreamTrack):
     kind = "video"
 
-    def __init__(self, fps=30, out_w=960, out_h=540):
+    def __init__(self, monitor_index=0, fps=30, out_w=960, out_h=540):
         super().__init__()
         self.fps = fps
+        self.frame_interval = 1 / fps
+        # صف کوچک برای کم‌کردن لگ
+        self.camera = dxcam.create(output_idx=monitor_index, max_buffer_len=1)
+        if self.camera is None:
+            raise RuntimeError("Unable to create DXCAM camera.")
+        self.camera.start(target_fps=fps,include_cursor=True, video_mode=True)
         self.counter = 0
         self.out_w, self.out_h = out_w, out_h
-
-        # Full-screen capture area
-        screen_w = win32api.GetSystemMetrics(0)
-        screen_h = win32api.GetSystemMetrics(1)
-
-        # DXCamera: returns BGR, HxWx3 uint8
-        self.cam = DXCamera(0, 0, screen_w, screen_h, fps)
+        self._t0 = time.perf_counter()
 
     async def recv(self):
-        # Grab latest frame (BGR, HxWx3)
-        frame, ts = await asyncio.to_thread(self.cam.get_bgr_frame)
+        # t_expected = self.counter * self.frame_interval
+        # t_now = time.perf_counter() - self._t0
+        # sleep = t_expected - t_now
+        # if sleep > 0:
+            # await asyncio.sleep(sleep)
 
+        frame = await asyncio.to_thread(self.camera.get_latest_frame)
         if frame is None:
-            print("⚠️ Frame is None")
             frame = np.zeros((self.out_h, self.out_w, 3), dtype=np.uint8)
-        else:
-            print(f"✅ Got frame {frame.shape}, ts={ts}")
-            h, w = frame.shape[:2]
-            if (w, h) != (self.out_w, self.out_h):
-                if _CUPY_OK:
-                    # ---- GPU resize with CuPy (bilinear) ----
-                    sy = self.out_h / h
-                    sx = self.out_w / w
-                    gpu_img = cp.asarray(frame)                      # HxWx3 (BGR) on GPU
-                    gpu_resized = cupy_zoom(gpu_img, (sy, sx, 1.0), order=1)
-                    print("before cupy:", frame.shape, frame.dtype, frame.min(), frame.max())
-                    frame = cp.asnumpy(gpu_resized).astype(np.uint8)
-                    print("after cupy:", frame.shape, frame.dtype, frame.min(), frame.max())            # back to CPU
-                else:
-                    # ---- CPU NumPy bilinear fallback ----
-                    frame = _resize_bilinear_numpy(frame, self.out_w, self.out_h)
 
-        # BGR -> RGB without cv2
-        frame = frame[..., ::-1]
-        print("Frame:", frame.shape, frame.dtype, frame.min(), frame.max())
-        # Wrap to AV frame for WebRTC
+        # if (frame.shape[1], frame.shape[0]) != (self.out_w, self.out_h):
+            # frame = cv2.resize(frame, (self.out_w, self.out_h), interpolation=cv2.INTER_AREA)
+            # gpu_frame = cv2.cuda_GpuMat()
+            # gpu_frame.upload(frame)
+            # resized_gpu = cv2.cuda.resize(gpu_frame, (self.out_w, self.out_h))
+            # frame = resized_gpu.download()
+            # frame = await asyncio.to_thread(cv2.resize, frame, (self.out_w, self.out_h), interpolation=cv2.INTER_AREA)
+        # ⬅️ بدون تغییر رنگ، مستقیم BGR
         av_frame = av.VideoFrame.from_ndarray(frame, format="rgb24")
         av_frame.pts = self.counter
         av_frame.time_base = fractions.Fraction(1, self.fps)
-        self.counter += 1
 
-        await asyncio.sleep(1 / self.fps)
+        self.counter += 1
         return av_frame
 
 
@@ -367,11 +357,11 @@ async def offer(request):
     answer = await pc.createAnswer()
 
     # SDP munging: محدود کردن bitrate به 1500 kbps
-    # sdp = answer.sdp.replace(
-        # "a=mid:0",
-        # "a=mid:0\r\nb=AS:2000\r\nx-google-start-bitrate:100\r\nx-google-max-bitrate:3500"
-    # )
-    # answer = RTCSessionDescription(sdp=sdp, type=answer.type)
+    sdp = answer.sdp.replace(
+        "a=mid:0",
+        "a=mid:0\r\nb=AS:2000\r\nx-google-start-bitrate:100\r\nx-google-max-bitrate:3500"
+    )
+    answer = RTCSessionDescription(sdp=sdp, type=answer.type)
 
     sdp_summary(answer.sdp, "LOCAL (answer)")
     await pc.setLocalDescription(answer)
