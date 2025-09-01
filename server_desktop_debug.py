@@ -267,7 +267,7 @@ class DesktopCaptureTrack(MediaStreamTrack):
         av_frame.time_base = fractions.Fraction(1, self.fps)
         self.counter += 1
 
-        await asyncio.sleep(1 / self.fps)
+        # await asyncio.sleep(1 / self.fps)
         return av_frame
 
 
