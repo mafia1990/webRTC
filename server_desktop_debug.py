@@ -355,11 +355,17 @@ async def offer(request):
     for transceiver in pc.getTransceivers():
         if transceiver.sender == video_sender:
             # تنظیم فریم‌ریت
-            transceiver.sender.setStreams(
-                encodings=[
-                    {"maxFramerate": 30, "scaleResolutionDownBy": 1.0, "active": True}
-                ]
-            )
+            sender = transceiver.sender
+            params = sender.getParameters()
+
+            if not params.encodings:
+                params.encodings = [{}]
+
+            params.encodings[0]["maxFramerate"] = 30
+            params.encodings[0]["scaleResolutionDownBy"] = 1.0
+            params.encodings[0]["active"] = True
+
+            await sender.setParameters(params)
             log.info("Found video transceiver, setting codec preferences...")
             caps = RTCRtpSender.getCapabilities("video")
             log.info("Available codecs: %s", caps.codecs)
