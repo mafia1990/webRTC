@@ -159,7 +159,6 @@ pc.ontrack = (ev) => {
     // موس (relative فقط وقتی lock فعاله)
     document.addEventListener("mousemove", e=>{
       if (document.pointerLockElement === canvas && channel.readyState==="open") {
-	  console.log(444);
         channel.send(JSON.stringify({type:"mousemove", x:e.movementX, y:e.movementY}));
       }
     });

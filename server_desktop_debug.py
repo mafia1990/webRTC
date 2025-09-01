@@ -221,53 +221,56 @@ class MicrophoneAudioTrack(MediaStreamTrack):
 class DesktopCaptureTrack(MediaStreamTrack):
     kind = "video"
 
-    def __init__(self, fps=30, out_w=960, out_h=540):
+    def __init__(self, fps=30, out_w=960, out_h=540, monitor=1):
+        """
+        monitor: شماره مانیتور (1 = primary). 0 = کل فضای دسکتاپ.
+        fps: نرخ فریم
+        out_w, out_h: رزولوشن خروجی
+        debug: اگر True باشه، پیش‌نمایش با OpenCV نشون میده
+        """
         super().__init__()
         self.fps = fps
         self.counter = 0
         self.out_w, self.out_h = out_w, out_h
 
-        # Full-screen capture area
-        screen_w = win32api.GetSystemMetrics(0)
-        screen_h = win32api.GetSystemMetrics(1)
+        # mss init
+        self.sct = mss.mss()
+        mons = self.sct.monitors
+        if monitor < 0 or monitor >= len(mons):
+            raise ValueError(f"Invalid monitor index {monitor}, available: 0..{len(mons)-1}")
+        self.mon = mons[monitor]
 
-        # DXCamera: returns BGR, HxWx3 uint8
-        self.cam = DXCamera(0, 0, screen_w, screen_h, fps)
+        # برای کنترل زمان‌بندی
+        import time
+        self._next_ts = time.perf_counter()
 
     async def recv(self):
-        # Grab latest frame (BGR, HxWx3)
-        frame, ts = await asyncio.to_thread(self.cam.get_bgr_frame)
+        # گرفتن فریم از mss (خروجی BGRA)
+        sct_img = self.sct.grab(self.mon)
+        h, w = sct_img.height, sct_img.width
+        frame = np.frombuffer(sct_img.rgb, dtype=np.uint8).reshape(h, w, 3)  # → RGB
 
-        if frame is None:
-            print("⚠️ Frame is None")
-            frame = np.zeros((self.out_h, self.out_w, 3), dtype=np.uint8)
-        else:
-            print(f"✅ Got frame {frame.shape}, ts={ts}")
-            h, w = frame.shape[:2]
-            # if (w, h) != (self.out_w, self.out_h):
-                # if _CUPY_OK:
-                    # # ---- GPU resize with CuPy (bilinear) ----
-                    # sy = self.out_h / h
-                    # sx = self.out_w / w
-                    # gpu_img = cp.asarray(frame)                      # HxWx3 (BGR) on GPU
-                    # gpu_resized = cupy_zoom(gpu_img, (sy, sx, 1.0), order=1)
-                    # print("before cupy:", frame.shape, frame.dtype, frame.min(), frame.max())
-                    # frame = cp.asnumpy(gpu_resized).astype(np.uint8)
-                    # print("after cupy:", frame.shape, frame.dtype, frame.min(), frame.max())            # back to CPU
-                # else:
-                    # # ---- CPU NumPy bilinear fallback ----
-                    # frame = _resize_bilinear_numpy(frame, self.out_w, self.out_h)
+        # تغییر اندازه
+        if (w, h) != (self.out_w, self.out_h):
+            frame = cv2.resize(frame, (self.out_w, self.out_h), interpolation=cv2.INTER_LINEAR)
 
-        # BGR -> RGB without cv2
-        frame = frame[..., ::-1]
-        print("Frame:", frame.shape, frame.dtype, frame.min(), frame.max())
-        # Wrap to AV frame for WebRTC
+
+
+        # تبدیل به av.VideoFrame
         av_frame = av.VideoFrame.from_ndarray(frame, format="rgb24")
         av_frame.pts = self.counter
         av_frame.time_base = fractions.Fraction(1, self.fps)
         self.counter += 1
 
-        # await asyncio.sleep(1 / self.fps)
+        # pacing برای حفظ FPS
+        import time
+        self._next_ts += 1.0 / self.fps
+        delay = self._next_ts - time.perf_counter()
+        if delay > 0:
+            await asyncio.sleep(delay)
+        else:
+            self._next_ts = time.perf_counter()
+
         return av_frame
 
 
