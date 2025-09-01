@@ -8,11 +8,12 @@ import logging
 import fractions
 import time
 from aiortc import RTCRtpTransceiver
-from wincam import DXCamera
+
 import av
 import numpy as np
+import mss
 import cv2 
-import win32api
+import dxcam
 from pynput.keyboard import Controller as KeyController, Key
 from pynput.mouse import Controller as MouseController, Button
 from aiohttp import web
@@ -25,12 +26,7 @@ import av
 from aiortc import MediaStreamTrack
 from upscaler import ESRGANUpscaler
 import ctypes
-try:
-    import cupy as cp
-    from cupyx.scipy.ndimage import zoom as cupy_zoom
-    _CUPY_OK = True
-except Exception:
-    _CUPY_OK = False
+
 # ساختار برای mouse_event
 SendInput = ctypes.windll.user32.mouse_event
 
@@ -47,7 +43,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
     # logging.getLogger(name).setLevel(logging.DEBUG)
 log = logging.getLogger("server")
 from pynput.keyboard import Key
- 
+
 key_map = {
     # اعداد بالا
     "Digit0": "0",
@@ -112,40 +108,6 @@ def translate_key(code: str):
         return code[-1]
 
     return None
-
-def _resize_bilinear_numpy(img: np.ndarray, out_w: int, out_h: int) -> np.ndarray:
-    """
-    Pure NumPy bilinear resize for HxWxC uint8 images (no cv2/PIL).
-    """
-    in_h, in_w, channels = img.shape
-    if (in_w, in_h) == (out_w, out_h):
-        return img
-
-    # Create normalized grid in input space
-    y = np.linspace(0, in_h - 1, out_h)
-    x = np.linspace(0, in_w - 1, out_w)
-    x_grid, y_grid = np.meshgrid(x, y)
-
-    x0 = np.floor(x_grid).astype(np.int32)
-    y0 = np.floor(y_grid).astype(np.int32)
-    x1 = np.clip(x0 + 1, 0, in_w - 1)
-    y1 = np.clip(y0 + 1, 0, in_h - 1)
-
-    wa = (x1 - x_grid) * (y1 - y_grid)
-    wb = (x_grid - x0) * (y1 - y_grid)
-    wc = (x1 - x_grid) * (y_grid - y0)
-    wd = (x_grid - x0) * (y_grid - y0)
-
-    out = np.empty((out_h, out_w, channels), dtype=np.float32)
-    for c in range(channels):
-        Ia = img[y0, x0, c]
-        Ib = img[y0, x1, c]
-        Ic = img[y1, x0, c]
-        Id = img[y1, x1, c]
-        out[..., c] = wa * Ia + wb * Ib + wc * Ic + wd * Id
-
-    return np.clip(out, 0, 255).astype(np.uint8)
-
 
 def sdp_summary(sdp: str, label: str):
     lines = [l for l in sdp.splitlines() if l.startswith(("m=", "a=send", "a=recv", "a=mid", "a=rtpmap"))]
@@ -221,48 +183,45 @@ class MicrophoneAudioTrack(MediaStreamTrack):
 class DesktopCaptureTrack(MediaStreamTrack):
     kind = "video"
 
-    def __init__(self, fps=30, out_w=960, out_h=540):
+    def __init__(self, monitor_index=0, fps=30, out_w=960, out_h=540):
         super().__init__()
         self.fps = fps
+        self.frame_interval = 1 / fps
+        # صف کوچک برای کم‌کردن لگ
+        self.camera = dxcam.create(output_idx=monitor_index, max_buffer_len=1)
+        if self.camera is None:
+            raise RuntimeError("Unable to create DXCAM camera.")
+        self.camera.start(target_fps=fps,include_cursor=True, video_mode=True)
         self.counter = 0
         self.out_w, self.out_h = out_w, out_h
-
-        # Full-screen capture area
-        screen_w = win32api.GetSystemMetrics(0)
-        screen_h = win32api.GetSystemMetrics(1)
-
-        # DXCamera: returns BGR, HxWx3 uint8
-        self.cam = DXCamera(0, 0, screen_w, screen_h, fps)
+        self._t0 = time.perf_counter()
 
     async def recv(self):
-        # Grab latest frame (BGR, HxWx3)
-        frame, ts = await asyncio.to_thread(self.cam.get_bgr_frame)
+        # t_expected = self.counter * self.frame_interval
+        # t_now = time.perf_counter() - self._t0
+        # sleep = t_expected - t_now
+        # if sleep > 0:
+            # await asyncio.sleep(sleep)
 
+        frame = await asyncio.to_thread(self.camera.get_latest_frame)
         if frame is None:
             frame = np.zeros((self.out_h, self.out_w, 3), dtype=np.uint8)
-        else:
-            h, w = frame.shape[:2]
-            if (w, h) != (self.out_w, self.out_h):
-                if _CUPY_OK:
-                    # ---- GPU resize with CuPy (bilinear) ----
-                    sy = self.out_h / h
-                    sx = self.out_w / w
-                    gpu_img = cp.asarray(frame)                      # HxWx3 (BGR) on GPU
-                    gpu_resized = cupy_zoom(gpu_img, (sy, sx, 1.0), order=1)
-                    frame = cp.asnumpy(gpu_resized)                  # back to CPU
-                else:
-                    # ---- CPU NumPy bilinear fallback ----
-                    frame = _resize_bilinear_numpy(frame, self.out_w, self.out_h)
 
-        # BGR -> RGB without cv2
-        frame = frame[..., ::-1]
-
-        # Wrap to AV frame for WebRTC
+        # if (frame.shape[1], frame.shape[0]) != (self.out_w, self.out_h):
+            # frame = cv2.resize(frame, (self.out_w, self.out_h), interpolation=cv2.INTER_AREA)
+            # gpu_frame = cv2.cuda_GpuMat()
+            # gpu_frame.upload(frame)
+            # resized_gpu = cv2.cuda.resize(gpu_frame, (self.out_w, self.out_h))
+            # frame = resized_gpu.download()
+            # frame = await asyncio.to_thread(cv2.resize, frame, (self.out_w, self.out_h), interpolation=cv2.INTER_AREA)
+        # ⬅️ بدون تغییر رنگ، مستقیم BGR
         av_frame = av.VideoFrame.from_ndarray(frame, format="rgb24")
         av_frame.pts = self.counter
         av_frame.time_base = fractions.Fraction(1, self.fps)
+
         self.counter += 1
         return av_frame
+
 
 
         
