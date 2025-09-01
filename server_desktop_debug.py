@@ -224,39 +224,31 @@ class DesktopCaptureTrack(MediaStreamTrack):
     def __init__(self, monitor_index=0, fps=30, out_w=960, out_h=540):
         super().__init__()
         self.fps = fps
-        self.frame_interval = 1 / fps
-        # صف کوچک برای کم‌کردن لگ
-        self.camera = dxcam.create(output_idx=monitor_index, max_buffer_len=1)
-        if self.camera is None:
-            raise RuntimeError("Unable to create DXCAM camera.")
-        self.camera.start(target_fps=fps,include_cursor=True, video_mode=True)
         self.counter = 0
         self.out_w, self.out_h = out_w, out_h
-        self._t0 = time.perf_counter()
+
+        # ✅ گرفتن اطلاعات مانیتور
+        screen_w = win32api.GetSystemMetrics(0)
+        screen_h = win32api.GetSystemMetrics(1)
+
+        self.cam = DXCamera(0, 0, screen_w, screen_h, fps)
 
     async def recv(self):
-        # t_expected = self.counter * self.frame_interval
-        # t_now = time.perf_counter() - self._t0
-        # sleep = t_expected - t_now
-        # if sleep > 0:
-            # await asyncio.sleep(sleep)
+        # گرفتن آخرین فریم
+        frame, ts = await asyncio.to_thread(self.cam.get_bgr_frame)
 
-        frame = await asyncio.to_thread(self.camera.get_latest_frame)
         if frame is None:
             frame = np.zeros((self.out_h, self.out_w, 3), dtype=np.uint8)
+        else:
+            # اگر رزولوشن فرق داشت → resize
+            if (frame.shape[1], frame.shape[0]) != (self.out_w, self.out_h):
+                frame = cv2.resize(frame, (self.out_w, self.out_h), interpolation=cv2.INTER_LINEAR)
 
-        # if (frame.shape[1], frame.shape[0]) != (self.out_w, self.out_h):
-            # frame = cv2.resize(frame, (self.out_w, self.out_h), interpolation=cv2.INTER_AREA)
-            # gpu_frame = cv2.cuda_GpuMat()
-            # gpu_frame.upload(frame)
-            # resized_gpu = cv2.cuda.resize(gpu_frame, (self.out_w, self.out_h))
-            # frame = resized_gpu.download()
-            # frame = await asyncio.to_thread(cv2.resize, frame, (self.out_w, self.out_h), interpolation=cv2.INTER_AREA)
-        # ⬅️ بدون تغییر رنگ، مستقیم BGR
+        # ساخت فریم برای WebRTC (BGR → RGB)
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         av_frame = av.VideoFrame.from_ndarray(frame, format="rgb24")
         av_frame.pts = self.counter
         av_frame.time_base = fractions.Fraction(1, self.fps)
-
         self.counter += 1
         return av_frame
 
