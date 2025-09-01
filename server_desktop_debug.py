@@ -340,7 +340,8 @@ async def offer(request):
             except Exception as e:
                 log.error("Input parse error: %s", e)
 
-   
+    # ✅ فقط یک بار setRemoteDescription
+    await pc.setRemoteDescription(offer)
 
     # ساخت track
     desktop = DesktopCaptureTrack( fps=30, out_w=960, out_h=540)  # ⚠️ fps=150 خیلی زیاده!
@@ -354,18 +355,7 @@ async def offer(request):
     # ✅ تنظیم کُدِک بعد از setRemoteDescription و قبل از createAnswer
     for transceiver in pc.getTransceivers():
         if transceiver.sender == video_sender:
-            # تنظیم فریم‌ریت
-            sender = transceiver.sender
-            params = sender.getParameters()
-
-            if not params.encodings:
-                params.encodings = [{}]
-
-            params.encodings[0]["maxFramerate"] = 30
-            params.encodings[0]["scaleResolutionDownBy"] = 1.0
-            params.encodings[0]["active"] = True
-
-            await sender.setParameters(params)
+    
             log.info("Found video transceiver, setting codec preferences...")
             caps = RTCRtpSender.getCapabilities("video")
             log.info("Available codecs: %s", caps.codecs)
@@ -382,17 +372,28 @@ async def offer(request):
                 log.warning("❌ H.264 NOT available in capabilities. Using default (likely VP8)")
             break
 
-    # ✅ فقط یک بار setRemoteDescription
-    await pc.setRemoteDescription(offer)
+
     answer = await pc.createAnswer()
-    if "m=video" in sdp and "a=mid:1" in sdp:
-        sdp = sdp.replace("a=mid:1", "a=mid:1\r\na=framerate:30")
+    sdp = answer.sdp
+
+    # ✅ اضافه کردن فریم‌ریت به خط ویدیو
+    # پیدا کردن خط بعد از m=video و اضافه کردن a=framerate
+    lines = sdp.splitlines()
+    new_lines = []
+
+    for line in lines:
+        new_lines.append(line)
+        if line.startswith("a=mid:1") and "m=video" in "\n".join(new_lines[-3:]):
+            new_lines.append("a=framerate:30")
+
+    sdp = "\r\n".join(new_lines)
 
     # محدودیت بیت‌ریت
     sdp = sdp.replace(
         "a=mid:0",
         "a=mid:0\r\nb=AS:2000\r\nx-google-start-bitrate:1000\r\nx-google-max-bitrate:3500"
     )
+
     answer = RTCSessionDescription(sdp=sdp, type=answer.type)
 
     sdp_summary(answer.sdp, "LOCAL (answer)")
