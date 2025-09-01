@@ -234,6 +234,7 @@ class DesktopCaptureTrack(MediaStreamTrack):
         # DXCamera: returns BGR, HxWx3 uint8
         self.cam = DXCamera(0, 0, screen_w, screen_h, fps)
         self._next_ts = time.perf_counter()
+        self._last_frame_time = None
     async def recv(self):
         # Grab latest frame (BGR, HxWx3)
         frame, ts = await asyncio.to_thread(self.cam.get_bgr_frame)
@@ -267,14 +268,15 @@ class DesktopCaptureTrack(MediaStreamTrack):
         av_frame.time_base = fractions.Fraction(1, self.fps)
         self.counter += 1
 
-         # دقیق: زمان تحویل فریم بعدی
-        self._next_ts += 1.0 / self.fps
-        delay = self._next_ts - time.perf_counter()
-        if delay > 0:
-            await asyncio.sleep(delay)
-        else:
-            # اگر عقب افتادیم، همگام شو تا drift جمع نشه
-            self._next_ts = time.perf_counter()
+        # مدیریت زمان دقیق
+        now = time.perf_counter()
+        target_interval = 1.0 / self.fps
+        if self._last_frame_time is not None:
+            actual_interval = now - self._last_frame_time
+            if actual_interval < target_interval * 0.8:
+                await asyncio.sleep(target_interval - actual_interval)
+        self._last_frame_time = time.perf_counter()
+
         return av_frame
 
 
@@ -338,8 +340,7 @@ async def offer(request):
             except Exception as e:
                 log.error("Input parse error: %s", e)
 
-    # ✅ فقط یک بار setRemoteDescription
-    await pc.setRemoteDescription(offer)
+   
 
     # ساخت track
     desktop = DesktopCaptureTrack( fps=30, out_w=960, out_h=540)  # ⚠️ fps=150 خیلی زیاده!
@@ -353,7 +354,12 @@ async def offer(request):
     # ✅ تنظیم کُدِک بعد از setRemoteDescription و قبل از createAnswer
     for transceiver in pc.getTransceivers():
         if transceiver.sender == video_sender:
-
+            # تنظیم فریم‌ریت
+            transceiver.sender.setStreams(
+                encodings=[
+                    {"maxFramerate": 30, "scaleResolutionDownBy": 1.0, "active": True}
+                ]
+            )
             log.info("Found video transceiver, setting codec preferences...")
             caps = RTCRtpSender.getCapabilities("video")
             log.info("Available codecs: %s", caps.codecs)
@@ -370,11 +376,14 @@ async def offer(request):
                 log.warning("❌ H.264 NOT available in capabilities. Using default (likely VP8)")
             break
 
-
+    # ✅ فقط یک بار setRemoteDescription
+    await pc.setRemoteDescription(offer)
     answer = await pc.createAnswer()
+    if "m=video" in sdp and "a=mid:1" in sdp:
+        sdp = sdp.replace("a=mid:1", "a=mid:1\r\na=framerate:30")
 
-    # SDP munging: محدود کردن bitrate به 1500 kbps
-    sdp = answer.sdp.replace(
+    # محدودیت بیت‌ریت
+    sdp = sdp.replace(
         "a=mid:0",
         "a=mid:0\r\nb=AS:2000\r\nx-google-start-bitrate:1000\r\nx-google-max-bitrate:3500"
     )
