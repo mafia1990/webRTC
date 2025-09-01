@@ -239,8 +239,10 @@ class DesktopCaptureTrack(MediaStreamTrack):
         frame, ts = await asyncio.to_thread(self.cam.get_bgr_frame)
 
         if frame is None:
+            print("⚠️ Frame is None")
             frame = np.zeros((self.out_h, self.out_w, 3), dtype=np.uint8)
         else:
+            print(f"✅ Got frame {frame.shape}, ts={ts}")
             h, w = frame.shape[:2]
             if (w, h) != (self.out_w, self.out_h):
                 if _CUPY_OK:
