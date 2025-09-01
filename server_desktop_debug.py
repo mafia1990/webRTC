@@ -221,35 +221,53 @@ class MicrophoneAudioTrack(MediaStreamTrack):
 class DesktopCaptureTrack(MediaStreamTrack):
     kind = "video"
 
-    def __init__(self, monitor_index=0, fps=30, out_w=960, out_h=540):
+    def __init__(self, fps=30, out_w=960, out_h=540):
         super().__init__()
         self.fps = fps
         self.counter = 0
         self.out_w, self.out_h = out_w, out_h
 
-        # ✅ گرفتن اطلاعات مانیتور
+        # Full-screen capture area
         screen_w = win32api.GetSystemMetrics(0)
         screen_h = win32api.GetSystemMetrics(1)
 
+        # DXCamera: returns BGR, HxWx3 uint8
         self.cam = DXCamera(0, 0, screen_w, screen_h, fps)
 
     async def recv(self):
-        # گرفتن آخرین فریم
+        # Grab latest frame (BGR, HxWx3)
         frame, ts = await asyncio.to_thread(self.cam.get_bgr_frame)
 
         if frame is None:
+            print("⚠️ Frame is None")
             frame = np.zeros((self.out_h, self.out_w, 3), dtype=np.uint8)
         else:
-            # اگر رزولوشن فرق داشت → resize
-            if (frame.shape[1], frame.shape[0]) != (self.out_w, self.out_h):
-                frame = cv2.resize(frame, (self.out_w, self.out_h), interpolation=cv2.INTER_LINEAR)
+            print(f"✅ Got frame {frame.shape}, ts={ts}")
+            h, w = frame.shape[:2]
+            if (w, h) != (self.out_w, self.out_h):
+                if _CUPY_OK:
+                    # ---- GPU resize with CuPy (bilinear) ----
+                    sy = self.out_h / h
+                    sx = self.out_w / w
+                    gpu_img = cp.asarray(frame)                      # HxWx3 (BGR) on GPU
+                    gpu_resized = cupy_zoom(gpu_img, (sy, sx, 1.0), order=1)
+                    print("before cupy:", frame.shape, frame.dtype, frame.min(), frame.max())
+                    frame = cp.asnumpy(gpu_resized).astype(np.uint8)
+                    print("after cupy:", frame.shape, frame.dtype, frame.min(), frame.max())            # back to CPU
+                else:
+                    # ---- CPU NumPy bilinear fallback ----
+                    frame = _resize_bilinear_numpy(frame, self.out_w, self.out_h)
 
-        # ساخت فریم برای WebRTC (BGR → RGB)
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        # BGR -> RGB without cv2
+        frame = frame[..., ::-1]
+        print("Frame:", frame.shape, frame.dtype, frame.min(), frame.max())
+        # Wrap to AV frame for WebRTC
         av_frame = av.VideoFrame.from_ndarray(frame, format="rgb24")
         av_frame.pts = self.counter
         av_frame.time_base = fractions.Fraction(1, self.fps)
         self.counter += 1
+
+        await asyncio.sleep(1 / self.fps)
         return av_frame
 
 
