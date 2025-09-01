@@ -38,8 +38,14 @@ pc.addTransceiver("audio", { direction:"recvonly" });
     video = document.createElement("video");
     video.autoplay = true;
     video.playsInline = true;
-    <!-- video.muted = true; -->
-    video.style.display = "none";
+    video.muted = true; // لازم برای autoplay
+    // مخفی بدون throttle
+    video.style.position = "absolute";
+    video.style.left = "-9999px";
+    video.style.opacity = "0";
+    video.style.width = "1px";
+    video.style.height = "1px";
+    video.style.pointerEvents = "none";
     document.body.appendChild(video);
 
     const canvas = document.getElementById("gameCanvas");
@@ -53,17 +59,16 @@ pc.ontrack = (ev) => {
         video.play().catch(e => log("video.play err:", e));
         log("Video track received, width:", video.videoWidth, "height:", video.videoHeight);
 
-        function render() {
-            if (video.videoWidth > 0) {
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            } else {
-                log("No video dimensions yet");
-            }
-            requestAnimationFrame(render);
+        // 🎬 رسم با requestVideoFrameCallback (سینک دقیق با فریم‌ها)
+        function pump(now, metadata) {
+          if (video.videoWidth > 0) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          }
+          video.requestVideoFrameCallback(pump);
         }
-        render();
+        video.requestVideoFrameCallback(pump);;
     }
     if (ev.track.kind === "audio") {
         const audioEl = document.getElementById("remoteAudio");
@@ -72,7 +77,7 @@ pc.ontrack = (ev) => {
 };
     // DataChannel برای ورودی
     channel = pc.createDataChannel("input");
-	console.log(channel,555);
+
     channel.onopen = ()=> {
       log("✅ DataChannel opened for input");
       enableInputEvents(canvas);
@@ -95,53 +100,37 @@ pc.ontrack = (ev) => {
 
 
 
-let lastBytesReceived = 0;
-let lastBytesSent = 0;
-let lastTime = Date.now();
+ // 📊 آمار
+    let lastBytesReceived = 0, lastBytesSent = 0, lastTime = Date.now();
+    let fpsNow = 0, kbpsDownNow = 0, kbpsUpNow = 0, rttNow = 0;
 
-
-let fpsNow = 0, kbpsDownNow = 0, kbpsUpNow = 0, rttNow = 0;
-
-setInterval(async ()=>{
-  const now = Date.now();
-  const stats = await pc.getStats();
-  stats.forEach(report=>{
-    // 📥 دانلود (inbound RTP: video)
-    if (report.type === "inbound-rtp" && report.kind === "video") {
-      const deltaTime = (now - lastTime) / 1000;
-      const deltaBytes = report.bytesReceived - lastBytesReceived;
-      kbpsDownNow = (deltaBytes * 8 / 1000 / deltaTime).toFixed(1);
-      fpsNow = report.framesPerSecond || 0;
-
-      log(`FPS=${fpsNow} ⬇️ Download=${kbpsDownNow} kbps`);
-      lastBytesReceived = report.bytesReceived;
-    }
-
-    // 📤 آپلود (outbound RTP)
-    if (report.type === "outbound-rtp") {
-      const deltaTime = (now - lastTime) / 1000;
-      const deltaBytes = report.bytesSent - lastBytesSent;
-      kbpsUpNow = (deltaBytes * 8 / 1000 / deltaTime).toFixed(1);
-
-      log(`⬆️ Upload=${kbpsUpNow} kbps`);
-      lastBytesSent = report.bytesSent;
-    }
-
-    // ⏱ پینگ/لتنسی
-    if (report.type === "candidate-pair" && report.state === "succeeded" && report.currentRoundTripTime) {
-      rttNow = (report.currentRoundTripTime * 1000).toFixed(1);
-      log(`Ping/Latency ≈ ${rttNow} ms`);
-    }
-  });
-  lastTime = now;
-
-  // ✨ آپدیت نوار وضعیت
-  const statsBar = document.getElementById("statsBar");
-  statsBar.innerText = `FPS: ${fpsNow} | ⬇️ ${kbpsDownNow} kbps | ⬆️ ${kbpsUpNow} kbps | Ping: ${rttNow} ms`;
-}, 2000);
-
-
+   setInterval(async ()=>{
+      const now = Date.now();
+      const stats = await pc.getStats();
+      stats.forEach(report=>{
+        if (report.type === "inbound-rtp" && report.kind === "video") {
+          const deltaTime = (now - lastTime) / 1000;
+          const deltaBytes = report.bytesReceived - lastBytesReceived;
+          kbpsDownNow = (deltaBytes * 8 / 1000 / deltaTime).toFixed(1);
+          fpsNow = report.framesPerSecond || 0;
+          lastBytesReceived = report.bytesReceived;
+        }
+        if (report.type === "outbound-rtp") {
+          const deltaTime = (now - lastTime) / 1000;
+          const deltaBytes = report.bytesSent - lastBytesSent;
+          kbpsUpNow = (deltaBytes * 8 / 1000 / deltaTime).toFixed(1);
+          lastBytesSent = report.bytesSent;
+        }
+        if (report.type === "candidate-pair" && report.state === "succeeded" && report.currentRoundTripTime) {
+          rttNow = (report.currentRoundTripTime * 1000).toFixed(1);
+        }
+      });
+      lastTime = now;
+      document.getElementById("statsBar").innerText =
+        `FPS: ${fpsNow} | ⬇️ ${kbpsDownNow} kbps | ⬆️ ${kbpsUpNow} kbps | Ping: ${rttNow} ms`;
+    }, 2000);
   }
+
 
   function enableInputEvents(canvas){
     // Pointer Lock روی canvas

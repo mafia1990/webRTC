@@ -233,7 +233,7 @@ class DesktopCaptureTrack(MediaStreamTrack):
 
         # DXCamera: returns BGR, HxWx3 uint8
         self.cam = DXCamera(0, 0, screen_w, screen_h, fps)
-
+        self._next_ts = time.perf_counter()
     async def recv(self):
         # Grab latest frame (BGR, HxWx3)
         frame, ts = await asyncio.to_thread(self.cam.get_bgr_frame)
@@ -267,7 +267,14 @@ class DesktopCaptureTrack(MediaStreamTrack):
         av_frame.time_base = fractions.Fraction(1, self.fps)
         self.counter += 1
 
-        # await asyncio.sleep(1 / self.fps)
+         # دقیق: زمان تحویل فریم بعدی
+        self._next_ts += 1.0 / self.fps
+        delay = self._next_ts - time.perf_counter()
+        if delay > 0:
+            await asyncio.sleep(delay)
+        else:
+            # اگر عقب افتادیم، همگام شو تا drift جمع نشه
+            self._next_ts = time.perf_counter()
         return av_frame
 
 
