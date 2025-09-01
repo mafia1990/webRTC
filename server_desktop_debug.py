@@ -266,8 +266,10 @@ class DesktopCaptureTrack(MediaStreamTrack):
         av_frame.pts = self.counter
         av_frame.time_base = fractions.Fraction(1, self.fps)
         self.counter += 1
-        cv2.imshow("DesktopCapture DEBUG", av_frame)
-        cv2.waitKey(1)
+        if self.counter == 10:  # مثلا فقط فریم دهم رو نشون بده
+            debug_img = av_frame.to_ndarray(format="bgr24")
+            cv2.imshow("AVFrame DEBUG", debug_img)
+            cv2.waitKey(1)
         await asyncio.sleep(1 / self.fps)
         return av_frame
 
