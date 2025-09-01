@@ -251,7 +251,9 @@ class DesktopCaptureTrack(MediaStreamTrack):
                     sx = self.out_w / w
                     gpu_img = cp.asarray(frame)                      # HxWx3 (BGR) on GPU
                     gpu_resized = cupy_zoom(gpu_img, (sy, sx, 1.0), order=1)
-                    frame = cp.asnumpy(gpu_resized)                  # back to CPU
+                    print("before cupy:", frame.shape, frame.dtype, frame.min(), frame.max())
+                    frame = cp.asnumpy(gpu_resized)
+                    print("after cupy:", frame.shape, frame.dtype, frame.min(), frame.max())            # back to CPU
                 else:
                     # ---- CPU NumPy bilinear fallback ----
                     frame = _resize_bilinear_numpy(frame, self.out_w, self.out_h)
