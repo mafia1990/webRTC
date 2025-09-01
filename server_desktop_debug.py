@@ -329,7 +329,7 @@ async def offer(request):
     await pc.setRemoteDescription(offer)
 
     # ساخت track
-    desktop = DesktopCaptureTrack(monitor_index=0, fps=30, out_w=960, out_h=540)  # ⚠️ fps=150 خیلی زیاده!
+    desktop = DesktopCaptureTrack( fps=30, out_w=960, out_h=540)  # ⚠️ fps=150 خیلی زیاده!
 
     # ✅ اضافه کردن track (sender ایجاد می‌شه)
     video_sender = pc.addTrack(desktop)
