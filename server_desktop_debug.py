@@ -239,10 +239,10 @@ class DesktopCaptureTrack(MediaStreamTrack):
         frame, ts = await asyncio.to_thread(self.cam.get_bgr_frame)
 
         if frame is None:
-            print("⚠️ Frame is None")
+            # print("⚠️ Frame is None")
             frame = np.zeros((self.out_h, self.out_w, 3), dtype=np.uint8)
         else:
-            print(f"✅ Got frame {frame.shape}, ts={ts}")
+            # print(f"✅ Got frame {frame.shape}, ts={ts}")
             h, w = frame.shape[:2]
             if (w, h) != (self.out_w, self.out_h):
                 if _CUPY_OK:
@@ -251,16 +251,16 @@ class DesktopCaptureTrack(MediaStreamTrack):
                     sx = self.out_w / w
                     gpu_img = cp.asarray(frame)                      # HxWx3 (BGR) on GPU
                     gpu_resized = cupy_zoom(gpu_img, (sy, sx, 1.0), order=1)
-                    print("before cupy:", frame.shape, frame.dtype, frame.min(), frame.max())
+                    # print("before cupy:", frame.shape, frame.dtype, frame.min(), frame.max())
                     frame = cp.asnumpy(gpu_resized).astype(np.uint8)
-                    print("after cupy:", frame.shape, frame.dtype, frame.min(), frame.max())            # back to CPU
+                    # print("after cupy:", frame.shape, frame.dtype, frame.min(), frame.max())            # back to CPU
                 else:
                     # ---- CPU NumPy bilinear fallback ----
                     frame = _resize_bilinear_numpy(frame, self.out_w, self.out_h)
 
         # BGR -> RGB without cv2
         frame = frame[..., ::-1]
-        print("Frame:", frame.shape, frame.dtype, frame.min(), frame.max())
+        # print("Frame:", frame.shape, frame.dtype, frame.min(), frame.max())
         # Wrap to AV frame for WebRTC
         av_frame = av.VideoFrame.from_ndarray(frame, format="rgb24")
         av_frame.pts = self.counter
@@ -369,7 +369,7 @@ async def offer(request):
     # SDP munging: محدود کردن bitrate به 1500 kbps
     sdp = answer.sdp.replace(
         "a=mid:0",
-        "a=mid:0\r\nb=AS:2000\r\nx-google-start-bitrate:100\r\nx-google-max-bitrate:3500"
+        "a=mid:0\r\nb=AS:2000\r\nx-google-start-bitrate:1000\r\nx-google-max-bitrate:3500"
     )
     answer = RTCSessionDescription(sdp=sdp, type=answer.type)
 
