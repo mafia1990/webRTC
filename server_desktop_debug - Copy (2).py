@@ -183,45 +183,39 @@ class MicrophoneAudioTrack(MediaStreamTrack):
 class DesktopCaptureTrack(MediaStreamTrack):
     kind = "video"
 
-    def __init__(self, monitor_index=0, fps=30, out_w=960, out_h=540):
+    def __init__(self, monitor_index=1, fps=30, out_w=1280, out_h=720):
         super().__init__()
         self.fps = fps
         self.frame_interval = 1 / fps
-        # صف کوچک برای کم‌کردن لگ
         self.camera = dxcam.create(output_idx=monitor_index, max_buffer_len=1)
         if self.camera is None:
             raise RuntimeError("Unable to create DXCAM camera.")
-        self.camera.start(target_fps=fps,include_cursor=True, video_mode=True)
+        self.camera.start(target_fps=fps, video_mode=True)
         self.counter = 0
         self.out_w, self.out_h = out_w, out_h
         self._t0 = time.perf_counter()
 
     async def recv(self):
-        # t_expected = self.counter * self.frame_interval
-        # t_now = time.perf_counter() - self._t0
-        # sleep = t_expected - t_now
-        # if sleep > 0:
-            # await asyncio.sleep(sleep)
-
         frame = await asyncio.to_thread(self.camera.get_latest_frame)
         if frame is None:
             frame = np.zeros((self.out_h, self.out_w, 3), dtype=np.uint8)
+        else:
+            # dxcam معمولاً 4 کاناله (BGRA) می‌دهد؛ به BGR24 تبدیل کن
+            if frame.shape[2] == 4:
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+            else:
+                # اگر 3 کاناله است فرض را بر BGR می‌گذاریم
+                pass
 
-        # if (frame.shape[1], frame.shape[0]) != (self.out_w, self.out_h):
-            # frame = cv2.resize(frame, (self.out_w, self.out_h), interpolation=cv2.INTER_AREA)
-            # gpu_frame = cv2.cuda_GpuMat()
-            # gpu_frame.upload(frame)
-            # resized_gpu = cv2.cuda.resize(gpu_frame, (self.out_w, self.out_h))
-            # frame = resized_gpu.download()
-            # frame = await asyncio.to_thread(cv2.resize, frame, (self.out_w, self.out_h), interpolation=cv2.INTER_AREA)
-        # ⬅️ بدون تغییر رنگ، مستقیم BGR
+            # مقیاس‌دهی با فیلتر مناسب (INTER_AREA برای downscale بهترینه)
+            if (frame.shape[1], frame.shape[0]) != (self.out_w, self.out_h):
+                frame = cv2.resize(frame, (self.out_w, self.out_h), interpolation=cv2.INTER_AREA)
+
         av_frame = av.VideoFrame.from_ndarray(frame, format="rgb24")
         av_frame.pts = self.counter
         av_frame.time_base = fractions.Fraction(1, self.fps)
-
         self.counter += 1
         return av_frame
-
 
 
         
@@ -288,7 +282,7 @@ async def offer(request):
     await pc.setRemoteDescription(offer)
 
     # ساخت track
-    desktop = DesktopCaptureTrack(monitor_index=0, fps=30, out_w=960, out_h=540)  # ⚠️ fps=150 خیلی زیاده!
+    desktop = DesktopCaptureTrack(monitor_index=1, fps=30, out_w=1360, out_h=768)  # ⚠️ fps=150 خیلی زیاده!
 
     # ✅ اضافه کردن track (sender ایجاد می‌شه)
     video_sender = pc.addTrack(desktop)
@@ -318,15 +312,16 @@ async def offer(request):
 
 
     answer = await pc.createAnswer()
+    munged_sdp = []
+    for line in answer.sdp.splitlines():
+        munged_sdp.append(line)
+        if line.startswith("m=video"):
+            # 6000 kbps = حدود 6 Mbps
+            munged_sdp.append("b=AS:6000")
+            munged_sdp.append("a=framerate:30")
+            munged_sdp.append("a=fmtp:96 x-google-min-bitrate=1000; x-google-max-bitrate=6000; x-google-start-bitrate=4000")
 
-    # SDP munging: محدود کردن bitrate به 1500 kbps
-    sdp = answer.sdp.replace(
-        "a=mid:0",
-        "a=mid:0\r\nb=AS:2000\r\nx-google-start-bitrate:100\r\nx-google-max-bitrate:3500"
-    )
-    answer = RTCSessionDescription(sdp=sdp, type=answer.type)
-
-    sdp_summary(answer.sdp, "LOCAL (answer)")
+    answer = RTCSessionDescription(sdp="\r\n".join(munged_sdp) + "\r\n", type=answer.type)
     await pc.setLocalDescription(answer)
 
 

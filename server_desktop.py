@@ -66,15 +66,15 @@ async def offer(request):
     pcs.add(pc)
     recorder = MediaBlackhole()
 
-    scale = int(request.query.get("scale", "2"))
-    onnx_path = "C:\\Users\\AmirAli\\Documents\\streaming\\files\\webrtc_ai_upscale_demo\\models\\Real-ESRGAN-x4plus.onnx"
-    provider = request.query.get("provider", None)
-    up = ESRGANUpscaler(onnx_path=onnx_path, scale=scale, provider=provider)
+    # scale = int(request.query.get("scale", "2"))
+    # onnx_path = "C:\\Users\\AmirAli\\Documents\\streaming\\files\\webrtc_ai_upscale_demo\\models\\Real-ESRGAN-x4plus.onnx"
+    # provider = request.query.get("provider", None)
+    # up = ESRGANUpscaler(onnx_path=onnx_path, scale=scale, provider=provider)
 
 
     desktop = DesktopCaptureTrack(fps=20)
-    local_video = VideoUpscaleTrack(desktop, up)
-    pc.addTrack(local_video)
+    # local_video = VideoUpscaleTrack(desktop, up)
+    pc.addTrack(desktop)
 
     @pc.on("iceconnectionstatechange")
     async def on_iceconnectionstatechange():

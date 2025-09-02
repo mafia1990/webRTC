@@ -2,93 +2,104 @@
 <html>
 <head>
   <meta charset="utf-8" />
+  <link rel="manifest" href="/client/manifest.json">
+<meta name="theme-color" content="#000000">
   <title>WebRTC Cloud Gaming Client</title>
   <style>
-    body { background:#000; color:#0f0; font-family:monospace; text-align:center }
-    canvas { max-width:90vw; max-height:80vh; display:block; margin:10px auto; background:#111; cursor:none }
-    pre { white-space:pre-wrap; background:#111; color:#0f0; padding:8px; text-align:left; max-width:90vw; margin:10px auto }
+    body {
+      margin:0; background:#000; color:#0f0; font-family:monospace;
+      overflow:hidden;
+    }
+    #statsBar {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%;
+      padding: 6px 10px;
+      background: rgba(0,0,0,0.6);
+      color: #0ff;
+      font-weight: bold;
+      font-size: 14px;
+      text-align: left;
+      z-index: 10000;
+    }
+    #videoContainer {
+      width:100%; height:100%;
+      background:#000;
+    }
+    #gameVideo {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background:#000;
+      display:block;
+      cursor:none;
+    }
+    #exitOverlay {
+      position:fixed;
+      top:0; left:0;
+      width:100%; height:30px;
+      background:rgba(0,0,0,0.7);
+      color:#fff; font-family:monospace;
+      text-align:center; line-height:30px;
+      display:none; z-index:99999;
+    }
+    pre { display:none }
   </style>
 </head>
 <body>
-  <h1>🎮 Orbit Game Client</h1>
-  <div id="statsBar" style="color:#0ff; margin:8px; font-weight:bold"></div>
-  <canvas id="gameCanvas"></canvas>
+  <div id="statsBar">Loading...</div>
+  <div id="videoContainer">
+    <video id="gameVideo" autoplay playsinline muted></video>
+  </div>
   <audio id="remoteAudio" autoplay></audio>
+  <div id="exitOverlay">⏳ برای خروج ESC را نگه دارید...</div>
   <pre id="log"></pre>
 
   <script>
   const logEl = document.getElementById('log');
-  const log = (...args)=>{ const s=args.join(' '); console.log(s);  };
+  const log = (...args)=>{ const s=args.join(' '); console.log(s); logEl.textContent += s+"\\n"; };
 
-  let pc, channel, video;
+  let pc, channel;
+  const video = document.getElementById("gameVideo");
+  video.playbackRate = 1.0;
+video.delay = 0;
+  const container = document.getElementById("videoContainer");
+  const overlay = document.getElementById("exitOverlay");
 
   async function start(){
     pc = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
     });
 
-    pc.onicegatheringstatechange = ()=> log("gathering:", pc.iceGatheringState);
-    pc.oniceconnectionstatechange = ()=> log("ice:", pc.iceConnectionState);
-    pc.onconnectionstatechange = ()=> log("pc:", pc.connectionState);
+    pc.addTransceiver("video", {
+		  direction: "recvonly",
+		  sendEncodings: [
+			{ maxBitrate: 8000000 }  // 6 Mbps
+		  ]
+		});
+    pc.addTransceiver("audio", { direction:"recvonly" });
 
-   pc.addTransceiver("video", { direction:"recvonly" });
-pc.addTransceiver("audio", { direction:"recvonly" });
-
-    // منبع ویدیو (پنهان)
-    video = document.createElement("video");
-    video.autoplay = true;
-    video.playsInline = true;
-    video.muted = true; // لازم برای autoplay
-    // مخفی بدون throttle
-    video.style.position = "absolute";
-    video.style.left = "-9999px";
-    video.style.opacity = "0";
-    video.style.width = "1px";
-    video.style.height = "1px";
-    video.style.pointerEvents = "none";
-    document.body.appendChild(video);
-
-    const canvas = document.getElementById("gameCanvas");
-    const ctx = canvas.getContext("2d");
-		canvas.tabIndex = 0;       // مهم: بدون این، preventDefault برای Tab همیشه کار نمی‌کند
-    canvas.focus();
-pc.ontrack = (ev) => {
-    log("ontrack:", ev.track.kind, "streams:", ev.streams.length);
-    if (ev.track.kind === "video") {
+    pc.ontrack = (ev) => {
+      if (ev.track.kind === "video") {
         video.srcObject = ev.streams[0];
         video.play().catch(e => log("video.play err:", e));
-        log("Video track received, width:", video.videoWidth, "height:", video.videoHeight);
+      }
+      if (ev.track.kind === "audio") {
+        document.getElementById("remoteAudio").srcObject = ev.streams[0];
+      }
+    };
 
-        // 🎬 رسم با requestVideoFrameCallback (سینک دقیق با فریم‌ها)
-        function pump(now, metadata) {
-          if (video.videoWidth > 0) {
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          }
-          video.requestVideoFrameCallback(pump);
-        }
-        video.requestVideoFrameCallback(pump);;
-    }
-    if (ev.track.kind === "audio") {
-        const audioEl = document.getElementById("remoteAudio");
-        audioEl.srcObject = ev.streams[0];
-    }
-};
-    // DataChannel برای ورودی
     channel = pc.createDataChannel("input");
-
     channel.onopen = ()=> {
       log("✅ DataChannel opened for input");
-      enableInputEvents(canvas);
-	   canvas.focus();   
+      enableInputEvents(video);
+      video.focus();
     };
     channel.onclose = ()=> log("❌ DataChannel closed");
+
     // Offer → سرور
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    log("local offer set. SDP len:", offer.sdp.length);
-
     const res = await fetch('/offer', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
@@ -96,15 +107,19 @@ pc.ontrack = (ev) => {
     });
     const answer = await res.json();
     await pc.setRemoteDescription(answer);
-    log("remote answer set. SDP len:", answer.sdp.length);
-
-
-
- // 📊 آمار
+pc.getSenders().forEach(s=>{
+  if(s.track && s.track.kind==="video"){
+    let params = s.getParameters();
+    if (!params.degradationPreference) {
+      params.degradationPreference = "maintain-framerate";
+    }
+    s.setParameters(params);
+  }
+});
+    // 📊 آمار
     let lastBytesReceived = 0, lastBytesSent = 0, lastTime = Date.now();
     let fpsNow = 0, kbpsDownNow = 0, kbpsUpNow = 0, rttNow = 0;
-
-   setInterval(async ()=>{
+    setInterval(async ()=>{
       const now = Date.now();
       const stats = await pc.getStats();
       stats.forEach(report=>{
@@ -131,34 +146,32 @@ pc.ontrack = (ev) => {
     }, 2000);
   }
 
-
-  function enableInputEvents(canvas){
-    // Pointer Lock روی canvas
-
-    canvas.requestPointerLock = canvas.requestPointerLock || canvas.mozRequestPointerLock;
-    canvas.addEventListener("click", ()=>{
-      canvas.requestPointerLock();
-	   canvas.focus();
+  // 🎮 ورودی موس/کیبورد
+  function enableInputEvents(video){
+    video.requestPointerLock = video.requestPointerLock || video.mozRequestPointerLock;
+    video.addEventListener("click", ()=>{
+      video.requestPointerLock();
+      video.focus();
     });
+
     const blockDefaultKeys = new Set([
       "Tab","AltLeft","AltRight","MetaLeft","MetaRight",
       "F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12"
     ]);
-    // کیبورد
+
     document.addEventListener("keydown", e=>{
-	 if (blockDefaultKeys.has(e.code)) e.preventDefault();
+      if (blockDefaultKeys.has(e.code)) e.preventDefault();
       if(channel.readyState==="open")
         channel.send(JSON.stringify({type:"keydown", key:e.code}));
     });
     document.addEventListener("keyup", e=>{
-	 if (blockDefaultKeys.has(e.code)) e.preventDefault();
+      if (blockDefaultKeys.has(e.code)) e.preventDefault();
       if(channel.readyState==="open")
         channel.send(JSON.stringify({type:"keyup", key:e.code}));
     });
 
-    // موس (relative فقط وقتی lock فعاله)
     document.addEventListener("mousemove", e=>{
-      if (document.pointerLockElement === canvas && channel.readyState==="open") {
+      if (document.pointerLockElement === video && channel.readyState==="open") {
         channel.send(JSON.stringify({type:"mousemove", x:e.movementX, y:e.movementY}));
       }
     });
@@ -174,13 +187,48 @@ pc.ontrack = (ev) => {
       if(channel.readyState==="open")
         channel.send(JSON.stringify({type:"wheel", delta:e.deltaY}));
     });
-	 window.addEventListener("blur", ()=> canvas.focus());
-    document.addEventListener("visibilitychange", ()=>{
-      if (document.visibilityState === "visible") canvas.focus();
-    });
   }
 
+// 🎬 فول‌اسکرین با ESC نگه‌داشتنی
+function enableFullscreen(){
+  async function goFullscreen(){
+    if (!document.fullscreenElement){
+      await container.requestFullscreen();
+      video.focus();
+  console.log('keyboard' in navigator , 'lock' in navigator.keyboard);
+      // 🔑 بعد از ورود به fullscreen، ESC رو قفل می‌کنیم
+      if ('keyboard' in navigator && 'lock' in navigator.keyboard) {
+	  console.log("444");
+        try {
+          await navigator.keyboard.lock(['Escape']);
+          console.log("✅ ESC locked with Keyboard Lock API");
+        } catch(e) {
+          console.warn("Keyboard lock failed:", e);
+        }
+      }
+    }
+  }
+  container.addEventListener("click", goFullscreen);
+
+  // پیام وقتی ESC کوتاه زده بشه
+  document.addEventListener("keydown", e=>{
+    if (e.code === "Escape" && document.fullscreenElement){
+      overlay.style.display = "block";
+      setTimeout(()=> overlay.style.display = "none", 2000);
+      // 🚫 اینجا preventDefault لازم نیست چون ESC دیگه fullscreen رو نمی‌بنده
+    }
+  });
+}
+
   start();
+  enableFullscreen();
   </script>
+  <script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/client/sw.js').then(()=>{
+    console.log("✅ Service Worker registered");
+  });
+}
+</script>
 </body>
 </html>
