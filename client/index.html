@@ -29,7 +29,7 @@
     #gameVideo {
       width: 100%;
       height: 100%;
-      object-fit: contain;
+      object-fit: cover;
 	  aspect-ratio: 16 / 9; 
       background:#000;
       display:block;
@@ -87,11 +87,6 @@
       const { videoWidth, videoHeight } = video;
       if (videoWidth && videoHeight) {
         console.log(`Video resolution: ${videoWidth}x${videoHeight}`);
-        // تنظیم aspect ratio دینامیک
-        video.style.aspectRatio = `${videoWidth} / ${videoHeight}`;
-        video.style.width = "100%";
-        video.style.height = "auto";
-        video.style.objectFit = "contain"; // یا cover
       }
     };
         video.play().catch(e => log("video.play err:", e));
