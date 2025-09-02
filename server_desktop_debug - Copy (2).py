@@ -222,8 +222,7 @@ class DesktopCaptureTrack(MediaStreamTrack):
         self.counter += 1
         return av_frame
 
-
-        
+      
 
 
 
