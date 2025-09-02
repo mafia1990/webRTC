@@ -367,7 +367,7 @@ async def offer(request):
     # ساخت SDP جدید
     new_sdp = "\r\n".join(munged_sdp) + "\r\n"
     answer = RTCSessionDescription(sdp=new_sdp, type=answer.type)
-await pc.setLocalDescription(answer)
+    await pc.setLocalDescription(answer)
 
 
     return web.Response(
