@@ -75,7 +75,7 @@
     pc.addTransceiver("video", {
 		  direction: "recvonly",
 		  sendEncodings: [
-			{ maxBitrate: 9000000 }  // 6 Mbps
+			{ maxBitrate: 10000000 }  // 10 Mbps
 		  ]
 		});
     pc.addTransceiver("audio", { direction:"recvonly" });
@@ -83,7 +83,14 @@
     pc.ontrack = (ev) => {
       if (ev.track.kind === "video") {
         video.srcObject = ev.streams[0];
-		
+		const canvas = document.createElement('canvas');
+canvas.width = video.videoWidth;
+canvas.height = video.videoHeight;
+const ctx = canvas.getContext('2d');
+ctx.drawImage(video, 0, 0);
+canvas.toBlob((blob) => {
+  // آپلود یا نمایش اسکرین‌شات از کلاینت
+}, 'image/jpeg', 0.95);
         video.play().catch(e => log("video.play err:", e));
       }
       if (ev.track.kind === "audio") {
