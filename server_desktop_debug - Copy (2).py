@@ -232,7 +232,25 @@ pcs = set()
 async def index(request):
     content = open(os.path.join(ROOT, "index.html"), "r", encoding="utf-8").read()
     return web.Response(content_type="text/html", text=content)
+def find_h264_payload_type(sdp):
+    lines = sdp.splitlines()
+    video_line = None
+    for line in lines:
+        if line.startswith("m=video"):
+            video_line = line
+            break
+    if not video_line:
+        return None
 
+    # استخراج payload typeها
+    codecs = video_line.strip().split()[3:]  # اولین سه تا m=video 9 UDP/... هستن
+    for codec in codecs:
+        # جستجوی a=rtpmap:XXX H264
+        for line in lines:
+            if line.startswith(f"a=rtpmap:{codec}") and "H264" in line:
+                print(f"✅ H264 با payload type {codec} find out")
+                return int(codec)
+    return None
 async def offer(request):
     remote_ip = request.remote
     params = await request.json()
@@ -316,17 +334,40 @@ async def offer(request):
 
 
     answer = await pc.createAnswer()
+    sdp_lines = answer.sdp.splitlines()
     munged_sdp = []
-    for line in answer.sdp.splitlines():
-        munged_sdp.append(line)
-        if line.startswith("m=video"):
-            # 6000 kbps = حدود 6 Mbps
-            munged_sdp.append("b=AS:3000")
-            munged_sdp.append("a=framerate:30")
-            munged_sdp.append("a=fmtp:96 x-google-min-bitrate=1000; x-google-max-bitrate=6000; x-google-start-bitrate=1000")
+    h264_payload = None
 
-    answer = RTCSessionDescription(sdp="\r\n".join(munged_sdp) + "\r\n", type=answer.type)
-    await pc.setLocalDescription(answer)
+    # مرحله ۱: پیدا کردن شماره واقعی H264
+    for line in sdp_lines:
+        if line.startswith("a=rtpmap:") and "H264" in line:
+            pt = line.split(":")[1].split(" ")[0]
+            h264_payload = pt
+            print(f"✅ H264 payload type: {h264_payload}")
+            break
+
+    # مرحله ۲: پردازش خطوط SDP
+    for line in sdp_lines:
+        munged_sdp.append(line)
+        
+        if line.startswith("m=video"):
+            # اضافه کردن محدودیت باند (اختیاری)
+            munged_sdp.append("b=AS:8000")  # 8 Mbps
+            munged_sdp.append("a=framerate:60")
+
+        # اضافه کردن fmtp فقط اگر H264 باشه
+        if h264_payload and line.startswith(f"a=rtpmap:{h264_payload}"):
+            munged_sdp.append(
+                f"a=fmtp:{h264_payload} "
+                "x-google-min-bitrate=1000;"
+                "x-google-max-bitrate=8000;"
+                "x-google-start-bitrate=4000"
+            )
+
+    # ساخت SDP جدید
+    new_sdp = "\r\n".join(munged_sdp) + "\r\n"
+    answer = RTCSessionDescription(sdp=new_sdp, type=answer.type)
+await pc.setLocalDescription(answer)
 
 
     return web.Response(
