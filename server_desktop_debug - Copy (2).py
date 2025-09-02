@@ -307,12 +307,12 @@ async def offer(request):
                 and codec.parameters.get("packetization-mode") == "1"
                 and codec.parameters.get("profile-level-id") in ["42e01f", "42001f"]
             ]
-            if h264_codecs:
-                transceiver.setCodecPreferences(h264_codecs)
-                log.info("✅ H.264 selected as preferred codec")
-            else:
-                log.warning("❌ H.264 NOT available in capabilities. Using default (likely VP8)")
-            break
+            # if h264_codecs:
+                # transceiver.setCodecPreferences(h264_codecs)
+                # log.info("✅ H.264 selected as preferred codec")
+            # else:
+                # log.warning("❌ H.264 NOT available in capabilities. Using default (likely VP8)")
+            # break
 
 
     answer = await pc.createAnswer()
