@@ -286,7 +286,7 @@ async def offer(request):
     await pc.setRemoteDescription(offer)
 
     # ساخت track
-    desktop = DesktopCaptureTrack(monitor_index=1, fps=30, out_w=1360, out_h=768)  # ⚠️ fps=150 خیلی زیاده!
+    desktop = DesktopCaptureTrack(monitor_index=0, fps=30, out_w=1360, out_h=768)  # ⚠️ fps=150 خیلی زیاده!
 
     # ✅ اضافه کردن track (sender ایجاد می‌شه)
     video_sender = pc.addTrack(desktop)
@@ -321,9 +321,9 @@ async def offer(request):
         munged_sdp.append(line)
         if line.startswith("m=video"):
             # 6000 kbps = حدود 6 Mbps
-            munged_sdp.append("b=AS:20000")
+            munged_sdp.append("b=AS:25000")
             munged_sdp.append("a=framerate:30")
-            munged_sdp.append("a=fmtp:96 x-google-min-bitrate=1000; x-google-max-bitrate=60000; x-google-start-bitrate=10000")
+            munged_sdp.append("a=fmtp:96 x-google-min-bitrate=2000; x-google-max-bitrate=60000; x-google-start-bitrate=20000")
 
     answer = RTCSessionDescription(sdp="\r\n".join(munged_sdp) + "\r\n", type=answer.type)
     await pc.setLocalDescription(answer)
