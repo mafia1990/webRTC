@@ -309,7 +309,7 @@ async def offer(request):
             ]
             # if h264_codecs:
                 # transceiver.setCodecPreferences(h264_codecs)
-                log.info("✅ H.264 selected as preferred codec")
+                # log.info("✅ H.264 selected as preferred codec")
             # else:
                 # log.warning("❌ H.264 NOT available in capabilities. Using default (likely VP8)")
             # break
