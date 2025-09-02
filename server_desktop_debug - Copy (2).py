@@ -200,6 +200,9 @@ class DesktopCaptureTrack(MediaStreamTrack):
         if frame is None:
             frame = np.zeros((self.out_h, self.out_w, 3), dtype=np.uint8)
         else:
+            debug_frame_raw = frame.copy()
+            cv2.imwrite("debug_dxcam_raw.png", cv2.cvtColor(debug_frame_raw, cv2.COLOR_BGR2RGB))
+            print("✅ dxcam raw frame saved: debug_dxcam_raw.png")
             # dxcam معمولاً 4 کاناله (BGRA) می‌دهد؛ به BGR24 تبدیل کن
             if frame.shape[2] == 4:
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
@@ -210,7 +213,9 @@ class DesktopCaptureTrack(MediaStreamTrack):
             # مقیاس‌دهی با فیلتر مناسب (INTER_AREA برای downscale بهترینه)
             if (frame.shape[1], frame.shape[0]) != (self.out_w, self.out_h):
                 frame = cv2.resize(frame, (self.out_w, self.out_h), interpolation=cv2.INTER_AREA)
-
+            debug_frame_resized = frame.copy()
+            cv2.imwrite("debug_resized_frame.png", cv2.cvtColor(debug_frame_resized, cv2.COLOR_BGR2RGB))
+            print("✅ Resized frame saved: debug_resized_frame.png")
         av_frame = av.VideoFrame.from_ndarray(frame, format="rgb24")
         av_frame.pts = self.counter
         av_frame.time_base = fractions.Fraction(1, self.fps)

@@ -26,15 +26,24 @@
       width:100%; height:100%;
       background:#000;
     }
-    #gameVideo {
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
-	  aspect-ratio: 16 / 9; 
-      background:#000;
-      display:block;
-      <!-- cursor:none; -->
-    }
+ #videoContainer {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: #000;
+  overflow: hidden;
+}
+
+#gameVideo {
+  width: 100%;
+  height: 100%;
+  max-width: 100vw;
+  max-height: 100vh;
+  object-fit: contain;
+  display: block;
+}
     #exitOverlay {
       position:fixed;
       top:0; left:0;
@@ -83,7 +92,13 @@
     pc.ontrack = (ev) => {
       if (ev.track.kind === "video") {
         video.srcObject = ev.streams[0];
-		
+		video.onloadedmetadata = () => {
+      const { videoWidth, videoHeight } = video;
+      if (videoWidth && videoHeight) {
+        console.log(`Video resolution: ${videoWidth}x${videoHeight}`);
+      }
+	  video.style.aspectRatio = `${videoWidth} / ${videoHeight}`;
+    };
         video.play().catch(e => log("video.play err:", e));
       }
       if (ev.track.kind === "audio") {
