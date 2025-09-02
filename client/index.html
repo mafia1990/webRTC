@@ -61,8 +61,8 @@
 
   let pc, channel;
   const video = document.getElementById("gameVideo");
-  video.playbackRate = 1.0;
-video.delay = 0;
+  <!-- video.playbackRate = 1.0; -->
+<!-- video.delay = 0; -->
   const container = document.getElementById("videoContainer");
   const overlay = document.getElementById("exitOverlay");
 
@@ -74,7 +74,7 @@ video.delay = 0;
     pc.addTransceiver("video", {
 		  direction: "recvonly",
 		  sendEncodings: [
-			{ maxBitrate: 8000000 }  // 6 Mbps
+			{ maxBitrate: 9000000 }  // 6 Mbps
 		  ]
 		});
     pc.addTransceiver("audio", { direction:"recvonly" });
@@ -193,7 +193,7 @@ pc.getSenders().forEach(s=>{
 function enableFullscreen(){
   async function goFullscreen(){
     if (!document.fullscreenElement){
-      await container.requestFullscreen();
+      <!-- await container.requestFullscreen(); -->
       video.focus();
   console.log('keyboard' in navigator , 'lock' in navigator.keyboard);
       // 🔑 بعد از ورود به fullscreen، ESC رو قفل می‌کنیم
