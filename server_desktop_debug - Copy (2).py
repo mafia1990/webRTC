@@ -307,12 +307,12 @@ async def offer(request):
                 and codec.parameters.get("packetization-mode") == "1"
                 and codec.parameters.get("profile-level-id") in ["42e01f", "42001f"]
             ]
-            # if h264_codecs:
-                # transceiver.setCodecPreferences(h264_codecs)
-                # log.info("✅ H.264 selected as preferred codec")
-            # else:
-                # log.warning("❌ H.264 NOT available in capabilities. Using default (likely VP8)")
-            # break
+            if h264_codecs:
+                transceiver.setCodecPreferences(h264_codecs)
+                log.info("✅ H.264 selected as preferred codec")
+            else:
+                log.warning("❌ H.264 NOT available in capabilities. Using default (likely VP8)")
+            break
 
 
     answer = await pc.createAnswer()
@@ -321,9 +321,9 @@ async def offer(request):
         munged_sdp.append(line)
         if line.startswith("m=video"):
             # 6000 kbps = حدود 6 Mbps
-            munged_sdp.append("b=AS:6000")
+            munged_sdp.append("b=AS:3000")
             munged_sdp.append("a=framerate:30")
-            munged_sdp.append("a=fmtp:96 x-google-min-bitrate=1000; x-google-max-bitrate=6000; x-google-start-bitrate=2000")
+            munged_sdp.append("a=fmtp:96 x-google-min-bitrate=1000; x-google-max-bitrate=6000; x-google-start-bitrate=1000")
 
     answer = RTCSessionDescription(sdp="\r\n".join(munged_sdp) + "\r\n", type=answer.type)
     await pc.setLocalDescription(answer)
