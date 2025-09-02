@@ -320,7 +320,7 @@ async def offer(request):
     for line in answer.sdp.splitlines():
         munged_sdp.append(line)
         if line.startswith("m=video"):
-           k # 6000 kbps = حدود 6 Mbps
+            # 6000 kbps = حدود 6 Mbps
             munged_sdp.append("b=AS:25000")
             munged_sdp.append("a=framerate:30")
             munged_sdp.append("a=fmtp:96 x-google-min-bitrate=2000; x-google-max-bitrate=60000; x-google-start-bitrate=20000")
